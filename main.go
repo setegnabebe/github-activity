@@ -12,12 +12,18 @@ type Event struct {
 	Repo struct {
 		Name string `json:"name"`
 	} `json:"repo"`
+	Payload struct {
+		Commits []struct {
+			Message string `json:"message"`
+		} `json:"commits"`
+		Action string `json:"action"`
+	} `json:"payload"`
 }
 
 func main() {
 	var username string
 
-	// Ask the user for the GitHub username
+	// Ask the user to enter their GitHub username
 	fmt.Print("Enter GitHub username: ")
 	fmt.Scanln(&username)
 
@@ -26,10 +32,8 @@ func main() {
 		return
 	}
 
-	// Build the GitHub API URL
-	url := "https://api.github.com/users/" + username + "/events/public"
+	url := "https://api.github.com/users/" + username + "/events"
 
-	// Fetch data from GitHub
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error fetching data:", err)
@@ -37,7 +41,15 @@ func main() {
 	}
 	defer resp.Body.Close()
 
-	// Decode the JSON into our Event struct
+	if resp.StatusCode == 404 {
+		fmt.Println("User not found.")
+		return
+	}
+	if resp.StatusCode != 200 {
+		fmt.Println("GitHub API returned:", resp.Status)
+		return
+	}
+
 	var events []Event
 	err = json.NewDecoder(resp.Body).Decode(&events)
 	if err != nil {
@@ -50,9 +62,36 @@ func main() {
 		return
 	}
 
-	// Print the results
-	fmt.Println("\nRecent public activity:")
+	fmt.Printf("\nRecent activity for %s:\n\n", username)
 	for _, event := range events {
-		fmt.Printf("- %-15s in %s\n", event.Type, event.Repo.Name)
+		switch event.Type {
+		case "PushEvent":
+			commitCount := len(event.Payload.Commits)
+			fmt.Printf("- Pushed %d commit(s) to %s\n", commitCount, event.Repo.Name)
+		case "IssuesEvent":
+			action := event.Payload.Action
+			if action == "" {
+				action = "did something with"
+			}
+			fmt.Printf("- %s an issue in %s\n", capitalize(action), event.Repo.Name)
+		case "PullRequestEvent":
+			action := event.Payload.Action
+			if action == "" {
+				action = "did something with"
+			}
+			fmt.Printf("- %s a pull request in %s\n", capitalize(action), event.Repo.Name)
+		case "WatchEvent":
+			fmt.Printf("- Starred %s\n", event.Repo.Name)
+		default:
+			fmt.Printf("- %s in %s\n", event.Type, event.Repo.Name)
+		}
 	}
+}
+
+// capitalize the first letter of a string
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return string(s[0]-32) + s[1:]
 }
